@@ -65,19 +65,35 @@ Run the benchmark to compare against `std::priority_queue`:
 ./build/bench_dheap4
 ```
 
-### Sample Results (Apple M1)
+Optional benchmark parameters:
 
-| Test | N | DHeap4 (ms) | STL (ms) | Speedup |
-|------|---|-------------|----------|---------|
-| pop-only | 100,000 | 2.1 | 3.8 | 1.8x |
-| pop-only | 1,000,000 | 28.5 | 52.3 | 1.8x |
-| mixed | 1,000,000 | 45.2 | 78.6 | 1.7x |
+```bash
+./build/bench_dheap4 --warmup 3 --iters 15
+./build/bench_dheap4 -w 1 -i 5
+./build/bench_dheap4 --help
+```
+
+Output columns:
+- `DHeap p50` / `STL p50`: median latency (typical performance)
+- `DHeap p95` / `STL p95`: tail latency (stability under variance)
+- `Spd(p50)` / `Spd(p95)`: speedup based on median and p95
+
+Benchmark fairness notes:
+- Push and mixed tests reserve capacity for both heaps.
+- Mixed operation sequence is generated once per run with a fixed seed.
 
 ## Tests
 
 ```bash
 ./build/test_dheap4
 ```
+
+Test coverage includes:
+- Basic heap operations and sorted output checks
+- Empty-heap exception paths (`top()` / `pop()` must throw)
+- Boundary values (`INT32_MIN`, `INT32_MAX`, duplicates)
+- Random differential tests against `std::priority_queue`
+- Long-run random differential test (200k operations)
 
 ## How It Works
 
