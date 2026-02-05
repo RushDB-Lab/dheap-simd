@@ -1,6 +1,7 @@
 #include "dheap4_simd.hpp"
 
 #include <algorithm>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <queue>
@@ -20,6 +21,26 @@ namespace {
 }  // namespace
 
 #define CHECK(expr) do { if (!(expr)) fail_check(#expr, __FILE__, __LINE__); } while (0)
+
+void check_throws_out_of_range(const std::function<void()>& fn) {
+    bool thrown = false;
+    try {
+        fn();
+    } catch (const std::out_of_range&) {
+        thrown = true;
+    }
+    CHECK(thrown);
+}
+
+void test_empty_heap_exceptions() {
+    std::cout << "Test: empty heap exceptions... ";
+
+    DHeap4Simd heap;
+    check_throws_out_of_range([&]() { static_cast<void>(heap.top()); });
+    check_throws_out_of_range([&]() { heap.pop(); });
+
+    std::cout << "PASSED\n";
+}
 
 void test_basic_operations() {
     std::cout << "Test: basic operations... ";
@@ -164,6 +185,35 @@ void test_edge_cases() {
     std::cout << "PASSED\n";
 }
 
+void test_boundary_values() {
+    std::cout << "Test: boundary values... ";
+
+    const int32_t min_v = std::numeric_limits<int32_t>::min();
+    const int32_t max_v = std::numeric_limits<int32_t>::max();
+    const int32_t near_min = min_v + 1;
+    const int32_t near_max = max_v - 1;
+
+    std::vector<int32_t> input = {
+        max_v, min_v, 0, near_min, near_max,
+        min_v, max_v, near_min, near_max, 0
+    };
+
+    DHeap4Simd heap;
+    for (int32_t v : input) {
+        heap.push(v);
+    }
+
+    std::sort(input.begin(), input.end());
+    for (int32_t expected : input) {
+        CHECK(!heap.empty());
+        CHECK(heap.top() == expected);
+        heap.pop();
+    }
+    CHECK(heap.empty());
+
+    std::cout << "PASSED\n";
+}
+
 void test_large_scale() {
     std::cout << "Test: large scale (100k elements)... ";
 
@@ -188,16 +238,64 @@ void test_large_scale() {
     std::cout << "PASSED\n";
 }
 
+void test_long_random_differential() {
+    std::cout << "Test: long random differential (200k ops)... ";
+
+    std::mt19937 rng(20260206);
+    std::uniform_int_distribution<int32_t> value_dist(
+        std::numeric_limits<int32_t>::min(), std::numeric_limits<int32_t>::max());
+    std::uniform_int_distribution<int> op_dist(0, 99);
+
+    DHeap4Simd heap;
+    std::priority_queue<int32_t, std::vector<int32_t>, std::greater<int32_t>> stl_heap;
+
+    constexpr int kOps = 200000;
+    for (int i = 0; i < kOps; ++i) {
+        const int op = op_dist(rng);
+
+        if (op < 50 || heap.empty()) {  // 50% push (or forced when empty)
+            const int32_t v = value_dist(rng);
+            heap.push(v);
+            stl_heap.push(v);
+        } else if (op < 75) {  // 25% top check
+            CHECK(!heap.empty());
+            CHECK(heap.top() == stl_heap.top());
+        } else {  // 25% pop
+            CHECK(!heap.empty());
+            CHECK(heap.top() == stl_heap.top());
+            heap.pop();
+            stl_heap.pop();
+        }
+
+        CHECK(heap.size() == stl_heap.size());
+        if (!heap.empty()) {
+            CHECK(heap.top() == stl_heap.top());
+        }
+    }
+
+    while (!heap.empty()) {
+        CHECK(heap.top() == stl_heap.top());
+        heap.pop();
+        stl_heap.pop();
+    }
+    CHECK(stl_heap.empty());
+
+    std::cout << "PASSED\n";
+}
+
 int main() {
     std::cout << "=== DHeap4Simd Unit Tests ===\n\n";
 
     try {
+        test_empty_heap_exceptions();
         test_basic_operations();
         test_sorted_output();
         test_random_operations();
         test_build_from_vector();
         test_edge_cases();
+        test_boundary_values();
         test_large_scale();
+        test_long_random_differential();
     } catch (const std::exception& e) {
         std::cerr << "\n=== Test failed ===\n" << e.what() << "\n";
         return 1;
