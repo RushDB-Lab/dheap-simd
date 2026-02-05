@@ -1,0 +1,20 @@
+{
+  "default": {
+    "min_speedup_p50": 0.95,
+    "min_speedup_p95": 0.90
+  },
+  "overrides": {
+    "push-only@1000000": {
+      "min_speedup_p50": 1.00,
+      "min_speedup_p95": 0.95
+    },
+    "pop-only@1000000": {
+      "min_speedup_p50": 1.00,
+      "min_speedup_p95": 0.95
+    },
+    "mixed (50/50)@1000000": {
+      "min_speedup_p50": 1.00,
+      "min_speedup_p95": 0.95
+    }
+  }
+}

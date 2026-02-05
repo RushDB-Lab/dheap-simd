@@ -1,0 +1,50 @@
+name: PR Test And Benchmark
+
+on:
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  test-and-benchmark:
+    name: test-and-benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Run Unit Tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Run Benchmark
+        run: |
+          mkdir -p artifacts
+          ./build/bench_dheap4 --warmup 1 --iters 7 | tee artifacts/bench.txt
+
+      - name: Parse Benchmark And Check Thresholds
+        run: |
+          python3 scripts/bench_report.py \
+            --input artifacts/bench.txt \
+            --thresholds .github/bench-thresholds.json \
+            --json artifacts/bench.json \
+            --markdown artifacts/bench.md \
+            --strict
+
+      - name: Publish Benchmark Summary
+        if: always()
+        run: cat artifacts/bench.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Benchmark Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ github.run_id }}
+          path: artifacts/
