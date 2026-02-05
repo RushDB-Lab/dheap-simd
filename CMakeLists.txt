@@ -7,6 +7,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Optimization flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 
+# Enable Link-Time Optimization (IPO) for release builds when available.
+include(CheckIPOSupported)
+check_ipo_supported(RESULT DHEAP4_IPO_SUPPORTED OUTPUT DHEAP4_IPO_ERROR)
+if(DHEAP4_IPO_SUPPORTED)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+else()
+    message(STATUS "IPO/LTO not supported: ${DHEAP4_IPO_ERROR}")
+endif()
+
 # Enable NEON on ARM (default on Apple Silicon)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
     message(STATUS "ARM64 detected, NEON enabled by default")

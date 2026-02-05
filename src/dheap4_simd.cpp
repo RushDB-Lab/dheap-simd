@@ -1,6 +1,5 @@
 #include "dheap4_simd.hpp"
 #include <algorithm>
-#include <limits>
 
 #if defined(__ARM_NEON) || defined(__ARM_NEON__)
 #include <arm_neon.h>
@@ -25,11 +24,13 @@ void DHeap4Simd::push(value_type v) {
 
 void DHeap4Simd::pop() {
     if (empty()) throw std::out_of_range("heap is empty");
+    if (data_.size() == 1) {
+        data_.pop_back();
+        return;
+    }
     data_[0] = data_.back();
     data_.pop_back();
-    if (!empty()) {
-        sift_down_simd(0);
-    }
+    sift_down_simd(0);
 }
 
 void DHeap4Simd::sift_up(size_t i) {
@@ -48,43 +49,41 @@ void DHeap4Simd::sift_down_simd(size_t i) {
     value_type val = data_[i];
 
     while (true) {
-        size_t c = first_child(i);
+        const size_t c = first_child(i);
         if (c >= n) break;
 
         size_t min_idx;
         value_type min_val;
 
-#if USE_NEON
         if (c + 3 < n) {
-            // SIMD path: all 4 children exist
-            int32x4_t children = vld1q_s32(&data_[c]);
-
-            // Pairwise minimum reduction with index tracking
-            // Compare lanes 0,1 and 2,3
-            int32x2_t lo = vget_low_s32(children);   // lanes 0,1
-            int32x2_t hi = vget_high_s32(children);  // lanes 2,3
-
-            // Get min of each pair
-            int32_t v0 = vget_lane_s32(lo, 0);
-            int32_t v1 = vget_lane_s32(lo, 1);
-            int32_t v2 = vget_lane_s32(hi, 0);
-            int32_t v3 = vget_lane_s32(hi, 1);
-
-            // Find minimum with index (branchless using conditional moves)
-            int lane = 0;
-            min_val = v0;
-            if (v1 < min_val) { min_val = v1; lane = 1; }
-            if (v2 < min_val) { min_val = v2; lane = 2; }
-            if (v3 < min_val) { min_val = v3; lane = 3; }
-
-            min_idx = c + lane;
-        } else
+#if USE_NEON
+            const int32x4_t children = vld1q_s32(&data_[c]);
+            const int32_t v0 = vgetq_lane_s32(children, 0);
+            const int32_t v1 = vgetq_lane_s32(children, 1);
+            const int32_t v2 = vgetq_lane_s32(children, 2);
+            const int32_t v3 = vgetq_lane_s32(children, 3);
+#else
+            const value_type v0 = data_[c];
+            const value_type v1 = data_[c + 1];
+            const value_type v2 = data_[c + 2];
+            const value_type v3 = data_[c + 3];
 #endif
-        {
-            // Scalar fallback: fewer than 4 children
+            const bool take_1 = (v1 < v0);
+            const value_type min01 = take_1 ? v1 : v0;
+            const size_t idx01 = c + static_cast<size_t>(take_1 ? 1 : 0);
+
+            const bool take_3 = (v3 < v2);
+            const value_type min23 = take_3 ? v3 : v2;
+            const size_t idx23 = c + static_cast<size_t>(take_3 ? 3 : 2);
+
+            const bool take_23 = (min23 < min01);
+            min_val = take_23 ? min23 : min01;
+            min_idx = take_23 ? idx23 : idx01;
+        } else {
             min_idx = c;
             min_val = data_[c];
-            for (size_t j = c + 1; j < n && j < c + kD; ++j) {
+            const size_t end = std::min(c + static_cast<size_t>(kD), n);
+            for (size_t j = c + 1; j < end; ++j) {
                 if (data_[j] < min_val) {
                     min_val = data_[j];
                     min_idx = j;
@@ -97,5 +96,6 @@ void DHeap4Simd::sift_down_simd(size_t i) {
         data_[i] = min_val;
         i = min_idx;
     }
+
     data_[i] = val;
 }

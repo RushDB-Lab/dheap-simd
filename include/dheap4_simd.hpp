@@ -28,8 +28,8 @@ private:
     static constexpr int kD = 4;
     std::vector<value_type> data_;
 
-    static size_t parent(size_t i) noexcept { return (i - 1) / kD; }
-    static size_t first_child(size_t i) noexcept { return i * kD + 1; }
+    static size_t parent(size_t i) noexcept { return (i - 1) >> 2; }
+    static size_t first_child(size_t i) noexcept { return (i << 2) + 1; }
 
     void sift_up(size_t i);
     void sift_down_simd(size_t i);
