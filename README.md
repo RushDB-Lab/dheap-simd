@@ -1,14 +1,32 @@
 # DHeap4-SIMD
 
-A high-performance 4-ary heap (d-heap) implementation with SIMD acceleration for ARM NEON.
+A high-performance d-ary heap implementation. SIMD exploration is retained as historical research only.
 
 ## Features
 
-- **4-ary Heap**: Better cache locality compared to binary heaps
-- **SIMD Optimized**: Uses ARM NEON intrinsics for parallel child comparison in `sift_down`
+- **Configurable Arity (`d`)**: Tune fanout for different workloads/cache behavior
+- **SIMD Research Archive**: SIMD paths are kept for reference, not as a recommended optimization direction
 - **Scalar Fallback**: Automatically falls back to scalar code on non-NEON platforms
 - **STL-like Interface**: Familiar `push`, `pop`, `top`, `empty`, `size` operations
 - **Batch Construction**: O(n) heap construction from vector using Floyd's algorithm
+
+## Final Conclusion (Read First)
+
+This repository ran extensive SIMD-vs-scalar heap experiments across:
+- `d = 4/8/16`
+- `ALWAYS/HYBRID/NEVER` SIMD policies
+- multiple `N`, warmup/iteration counts, and repeated runs
+- payload-size and threshold sweeps
+
+Observed outcome:
+- SIMD speedup was not stable across repeated runs.
+- Local wins in one case frequently disappeared or reversed in nearby cases.
+- Aggregate results were often near parity or negative once variance was included.
+
+Final recommendation for this codebase:
+- **Do not continue investing in SIMD heap optimization.**
+- Treat SIMD code and scripts as archived experiments, not the main performance path.
+- Prefer scalar-focused improvements: arity tuning, memory layout, branch behavior, batching, and parallel decomposition.
 
 ## Requirements
 
@@ -73,6 +91,29 @@ Optional benchmark parameters:
 ./build/bench_dheap4 --help
 ```
 
+Quantify SIMD contribution (historical research only):
+
+```bash
+python3 scripts/quantify_simd.py --warmup 1 --iters 7
+python3 scripts/quantify_simd.py --simd-policy ALWAYS --warmup 1 --iters 7
+python3 scripts/quantify_simd.py --arity 8 --sizes 1000000,2000000,4000000,8000000 --warmup 1 --iters 3
+python3 scripts/quantify_simd.py --arity 8 --payload-bytes 64 --sizes 1000000,2000000 --warmup 1 --iters 5
+```
+
+This script builds two variants:
+- `DHEAP_FORCE_SCALAR=OFF` (uses `DHEAP_SIMD_POLICY`, default `HYBRID`)
+- `DHEAP_FORCE_SCALAR=ON` (force scalar fallback)
+
+Useful CMake switches for experiments:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DDHEAP_FORCE_SCALAR=ON
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DDHEAP_SIMD_POLICY=ALWAYS
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DDHEAP_SIMD_POLICY=HYBRID -DDHEAP_SIMD_BUILD_MIN_ARITY=8 -DDHEAP_SIMD_POP_MIN_SIZE=4194304
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DDHEAP_ARITY=8
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DDHEAP_NODE_PAYLOAD_BYTES=128
+```
+
 Output columns:
 - `DHeap p50` / `STL p50`: median latency (typical performance)
 - `DHeap p95` / `STL p95`: tail latency (stability under variance)
@@ -97,11 +138,14 @@ Test coverage includes:
 
 ## How It Works
 
-The 4-ary heap stores elements in a flat array where each node has up to 4 children:
-- Parent of node `i`: `(i - 1) / 4`
-- Children of node `i`: `4*i + 1`, `4*i + 2`, `4*i + 3`, `4*i + 4`
+The d-ary heap stores elements in a flat array where each node has up to `d` children:
+- Parent of node `i`: `(i - 1) / d`
+- First child of node `i`: `d*i + 1`
 
-During `sift_down`, when all 4 children exist, ARM NEON loads all 4 values in a single `vld1q_s32` instruction and finds the minimum using SIMD operations, reducing comparison overhead.
+During `sift_down`, SIMD fast paths exist for full child blocks (`d=4/8/16`), and `DHEAP_SIMD_POLICY` controls when they are used:
+- `NEVER`: scalar only
+- `ALWAYS`: use SIMD whenever a full SIMD block is available
+- `HYBRID` (default): only enable SIMD for selected scenarios (e.g. bulk heapify upper levels / very large pop-root cases), scalar elsewhere
 
 ## License
 

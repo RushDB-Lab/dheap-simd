@@ -62,11 +62,44 @@ bool parse_int_arg(const std::string& text, int min_value, int* out) {
     return true;
 }
 
+bool parse_sizes_arg(const std::string& text, std::vector<size_t>* out) {
+    std::vector<size_t> parsed;
+    size_t start = 0;
+    while (start <= text.size()) {
+        const size_t comma = text.find(',', start);
+        const size_t end = (comma == std::string::npos) ? text.size() : comma;
+        if (end == start) {
+            return false;
+        }
+
+        const std::string token = text.substr(start, end - start);
+        char* tail = nullptr;
+        errno = 0;
+        const unsigned long long v = std::strtoull(token.c_str(), &tail, 10);
+        if (errno != 0 || tail == token.c_str() || *tail != '\0' || v == 0ULL) {
+            return false;
+        }
+        parsed.push_back(static_cast<size_t>(v));
+
+        if (comma == std::string::npos) {
+            break;
+        }
+        start = comma + 1;
+    }
+
+    if (parsed.empty()) {
+        return false;
+    }
+    *out = std::move(parsed);
+    return true;
+}
+
 void print_usage(const char* program_name) {
     std::cout << "Usage: " << program_name
-              << " [--warmup N|-w N] [--iters N|-i N]\n"
+              << " [--warmup N|-w N] [--iters N|-i N] [--sizes A,B,C|-s A,B,C]\n"
               << "  --warmup N  Warmup iterations (N >= 0, default 2)\n"
-              << "  --iters N   Measured iterations (N >= 1, default 9)\n";
+              << "  --iters N   Measured iterations (N >= 1, default 9)\n"
+              << "  --sizes L   Comma-separated positive sizes (default 10000,100000,1000000)\n";
 }
 
 std::vector<int32_t> generate_data(size_t n, uint32_t seed) {
@@ -280,13 +313,30 @@ void print_result(const std::string& test_name, size_t n, const BenchResult& res
 int main(int argc, char** argv) {
     std::cout << "=== DHeap4Simd vs std::priority_queue Benchmark ===\n\n";
 
-#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+#if DHEAP4_SIMD_ENABLED
     std::cout << "SIMD: ARM NEON enabled\n\n";
 #else
     std::cout << "SIMD: Disabled (scalar fallback)\n\n";
 #endif
 
+    std::cout << "SIMD policy: ";
+#if DHEAP_SIMD_POLICY == 0
+    std::cout << "NEVER";
+#elif DHEAP_SIMD_POLICY == 1
+    std::cout << "ALWAYS";
+#else
+    std::cout << "HYBRID";
+#endif
+    std::cout << "\n";
+#if DHEAP_SIMD_POLICY == 2
+    std::cout << "HYBRID thresholds: build_min_arity=" << DHEAP_SIMD_BUILD_MIN_ARITY
+              << ", pop_min_size=" << DHEAP_SIMD_POP_MIN_SIZE << "\n";
+#endif
+    std::cout << "Heap arity (d): " << DHEAP_ARITY << "\n";
+    std::cout << "Node payload bytes: " << DHEAP_NODE_PAYLOAD_BYTES << "\n\n";
+
     BenchConfig cfg{2, 9};
+    std::vector<size_t> sizes = {10000, 100000, 1000000};
 
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -305,6 +355,15 @@ int main(int argc, char** argv) {
         }
         if (arg == "--iters" || arg == "-i") {
             if (i + 1 >= argc || !parse_int_arg(argv[i + 1], 1, &cfg.measured_iterations)) {
+                std::cerr << "Invalid value for " << arg << "\n";
+                print_usage(argv[0]);
+                return 1;
+            }
+            ++i;
+            continue;
+        }
+        if (arg == "--sizes" || arg == "-s") {
+            if (i + 1 >= argc || !parse_sizes_arg(argv[i + 1], &sizes)) {
                 std::cerr << "Invalid value for " << arg << "\n";
                 print_usage(argv[0]);
                 return 1;
@@ -331,8 +390,6 @@ int main(int argc, char** argv) {
               << std::setw(13) << "Spd(p95)"
               << "\n";
     std::cout << std::string(105, '-') << "\n";
-
-    const std::vector<size_t> sizes = {10000, 100000, 1000000};
 
     for (size_t n : sizes) {
         print_result("push-only", n, bench_push_only(n, cfg));
